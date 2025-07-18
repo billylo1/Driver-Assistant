@@ -10,32 +10,52 @@ import AVFoundation
 import Vision
 
 
-// Used to modify the thresholds of the model
-class ThresholdProvider: MLFeatureProvider {
-    open var values = [
-        "iouThreshold": MLFeatureValue(double: UserDefaults.standard.double(forKey: "iouThreshold")),
-        "confidenceThreshold": MLFeatureValue(double: UserDefaults.standard.double(forKey: "confidenceThreshold"))
-        ]
 
-    var featureNames: Set<String> {
-        return Set(values.keys)
-    }
-
-    func featureValue(for featureName: String) -> MLFeatureValue? {
-        return values[featureName]
-    }
-}
 
 
 class ViewControllerDetection: ViewController, ObservableObject {
     
     @Published var showStopSign: Bool = false
+    @Published var currentZoomLevel: CGFloat = 1.0
     private var detectionOverlay: CALayer! = nil
     private var firstLabel: String = ""
     private var firstConfidence: Float = 0.0
     private var requests = [VNRequest]()
     
-    private var thresholdProvider = ThresholdProvider()
+
+    
+    // Override zoom methods to update published property and UI
+    override func setZoomFactor(_ factor: CGFloat) {
+        super.setZoomFactor(factor)
+        DispatchQueue.main.async {
+            self.currentZoomLevel = self.getCurrentZoomFactor()
+            self.updateZoomLevelLabel()
+        }
+    }
+    
+    override func zoomIn() {
+        super.zoomIn()
+        DispatchQueue.main.async {
+            self.currentZoomLevel = self.getCurrentZoomFactor()
+            self.updateZoomLevelLabel()
+        }
+    }
+    
+    override func zoomOut() {
+        super.zoomOut()
+        DispatchQueue.main.async {
+            self.currentZoomLevel = self.getCurrentZoomFactor()
+            self.updateZoomLevelLabel()
+        }
+    }
+    
+    override func resetZoom() {
+        super.resetZoom()
+        DispatchQueue.main.async {
+            self.currentZoomLevel = self.getCurrentZoomFactor()
+            self.updateZoomLevelLabel()
+        }
+    }
     
     
     @discardableResult
@@ -53,10 +73,6 @@ class ViewControllerDetection: ViewController, ObservableObject {
             let objectRecognition = VNCoreMLRequest(model: visionModel, completionHandler: { (request, error) in
                 DispatchQueue.main.async(execute: {
                     if let results = request.results {
-                        // Update thresholds
-                        self.thresholdProvider.values = ["iouThreshold": MLFeatureValue(double: UserDefaults.standard.double(forKey: "iouThreshold")),
-                                                         "confidenceThreshold": MLFeatureValue(double: UserDefaults.standard.double(forKey: "confidenceThreshold"))]
-                        visionModel.featureProvider = self.thresholdProvider
                         self.drawVisionRequestResults(results)
                     }
                 })
@@ -126,10 +142,14 @@ class ViewControllerDetection: ViewController, ObservableObject {
         
         // Set orientation of device to right so it matches with the iPhone's default landscape orientation
         let imageRequestHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
-        do {
-            try imageRequestHandler.perform(self.requests)
-        } catch {
-            print(error)
+        
+        // Perform detection on background queue to avoid blocking main thread
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try imageRequestHandler.perform(self.requests)
+            } catch {
+                print("Vision request failed: \(error)")
+            }
         }
     }
     
@@ -137,13 +157,8 @@ class ViewControllerDetection: ViewController, ObservableObject {
     override func setupAVCapture() {
         super.setupAVCapture()
         
-        // setup Vision parts
-        setupLayers()
-        updateLayerGeometry()
-        setupVision()
-        
-        // start the capture
-        startCaptureSession()
+        // Note: setupLayers, updateLayerGeometry, and setupVision will be called
+        // after the session configuration is complete in the parent class
     }
     
     
